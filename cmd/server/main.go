@@ -581,6 +581,14 @@ func spaHandler(root string, fs http.Handler) http.Handler {
 	indexHTML := []byte(strings.ReplaceAll(string(rawHTML), "__BUST__", bustValue))
 	log.Printf("[static] cache-bust value: %s", bustValue)
 
+	coreScopeUrl := os.Getenv("CORESCOPE_URL")
+	if coreScopeUrl == "" {
+		coreScopeUrl = "https://analyzer.00id.net"
+	}
+
+	indexHTML = []byte(strings.ReplaceAll(string(indexHTML), "__URL__", coreScopeUrl))
+	log.Printf("[static] corescope-url value: %s", coreScopeUrl)
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Defense-in-depth: explicitly reject path-traversal attempts before
 		// we touch the filesystem. gorilla/mux + http.FileServer already clean

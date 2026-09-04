@@ -695,7 +695,7 @@ async function run() {
   });
 
   // Test: Clicking a packet row opens detail pane
-  // SKIPPED: flaky test — see https://github.com/Kpa-clawbot/CoreScope/issues/257
+  // SKIPPED: flaky test — see https://github.com/ComchanNet/CoreScope/issues/257
   console.log('  ⏭️  Packets clicking row shows detail pane (SKIPPED — flaky)');
   /*await test('Packets clicking row shows detail pane', async () => {
     // Fresh navigation to avoid stale row references from previous test
