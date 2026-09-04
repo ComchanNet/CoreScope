@@ -2,7 +2,7 @@
  * #1107 — Live view: PACKET TYPES legend oversized + bottom toggle buttons
  * cramped.
  *
- * Per triage fix path (Kpa-clawbot/CoreScope#1107):
+ * Per triage fix path (ComchanNet/CoreScope#1107):
  *   1. `.live-legend` panel must be content-driven (`height: max-content`)
  *      with a `max-width` cap so it doesn't dominate the map.
  *   2. The activate/hide toggle button group at the bottom of the map

@@ -1,10 +1,10 @@
 # CoreScope
 
-[![Go Server Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Kpa-clawbot/CoreScope/master/.badges/go-server-coverage.json)](https://github.com/Kpa-clawbot/CoreScope/actions/workflows/deploy.yml)
-[![Go Ingestor Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Kpa-clawbot/CoreScope/master/.badges/go-ingestor-coverage.json)](https://github.com/Kpa-clawbot/CoreScope/actions/workflows/deploy.yml)
-[![E2E Tests](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Kpa-clawbot/CoreScope/master/.badges/e2e-tests.json)](https://github.com/Kpa-clawbot/CoreScope/actions/workflows/deploy.yml)
-[![Frontend Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Kpa-clawbot/CoreScope/master/.badges/frontend-coverage.json)](https://github.com/Kpa-clawbot/CoreScope/actions/workflows/deploy.yml)
-[![Deploy](https://github.com/Kpa-clawbot/CoreScope/actions/workflows/deploy.yml/badge.svg)](https://github.com/Kpa-clawbot/CoreScope/actions/workflows/deploy.yml)
+[![Go Server Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/ComchanNet/CoreScope/master/.badges/go-server-coverage.json)](https://github.com/ComchanNet/CoreScope/actions/workflows/deploy.yml)
+[![Go Ingestor Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/ComchanNet/CoreScope/master/.badges/go-ingestor-coverage.json)](https://github.com/ComchanNet/CoreScope/actions/workflows/deploy.yml)
+[![E2E Tests](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/ComchanNet/CoreScope/master/.badges/e2e-tests.json)](https://github.com/ComchanNet/CoreScope/actions/workflows/deploy.yml)
+[![Frontend Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/ComchanNet/CoreScope/master/.badges/frontend-coverage.json)](https://github.com/ComchanNet/CoreScope/actions/workflows/deploy.yml)
+[![Deploy](https://github.com/ComchanNet/CoreScope/actions/workflows/deploy.yml/badge.svg)](https://github.com/ComchanNet/CoreScope/actions/workflows/deploy.yml)
 
 > High-performance mesh network analyzer powered by Go. Sub-millisecond packet queries, ~300 MB memory for 56K+ packets, real-time WebSocket broadcast, full channel decryption.
 
@@ -21,7 +21,7 @@ The Go backend serves all 40+ API endpoints from an in-memory packet store with 
 | Memory (56K packets) | **~300 MB** (vs 1.3 GB on Node.js) |
 | WebSocket broadcast | **Real-time** to all connected browsers |
 | Channel decryption | **AES-128-ECB** with rainbow table |
-| GOMEMLIMIT (memory-constrained hosts) | **set to ≥1.5× working set** (e.g. 1536 MiB on a 2 GB Pi for a ~1 GB store). Lower values trigger a GC death-spiral. Configure via the `GOMEMLIMIT` env var or `runtime.maxMemoryMB` in `config.json`; env wins. Applies to both server and ingestor. See [#1010](https://github.com/Kpa-clawbot/CoreScope/issues/1010). |
+| GOMEMLIMIT (memory-constrained hosts) | **set to ≥1.5× working set** (e.g. 1536 MiB on a 2 GB Pi for a ~1 GB store). Lower values trigger a GC death-spiral. Configure via the `GOMEMLIMIT` env var or `runtime.maxMemoryMB` in `config.json`; env wins. Applies to both server and ingestor. See [#1010](https://github.com/ComchanNet/CoreScope/issues/1010). |
 
 See [PERFORMANCE.md](PERFORMANCE.md) for full benchmarks.
 
@@ -84,7 +84,7 @@ docker run -d --name corescope \
   --restart=unless-stopped \
   -p 80:80 -p 1883:1883 \
   -v /your/data:/app/data \
-  ghcr.io/kpa-clawbot/corescope:latest
+  ghcr.io/ComchanNet/corescope:latest
 ```
 
 Open `http://localhost` — done. No config file needed; CoreScope starts with sensible defaults.
@@ -97,7 +97,7 @@ docker run -d --name corescope \
   -v /your/data:/app/data \
   -v /your/Caddyfile:/etc/caddy/Caddyfile:ro \
   -v /your/caddy-data:/data/caddy \
-  ghcr.io/kpa-clawbot/corescope:latest
+  ghcr.io/ComchanNet/corescope:latest
 ```
 
 Disable built-in services with `-e DISABLE_MOSQUITTO=true` or `-e DISABLE_CADDY=true`, or drop a `.env` file in your data volume. See [docs/deployment.md](docs/deployment.md) for the full reference.
@@ -105,7 +105,7 @@ Disable built-in services with `-e DISABLE_MOSQUITTO=true` or `-e DISABLE_CADDY=
 ### Build from Source
 
 ```bash
-git clone https://github.com/Kpa-clawbot/CoreScope.git
+git clone https://github.com/ComchanNet/CoreScope.git
 cd CoreScope
 ./manage.sh setup
 ```
