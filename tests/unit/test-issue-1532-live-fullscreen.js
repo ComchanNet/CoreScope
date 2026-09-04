@@ -1,7 +1,7 @@
 /**
  * #1532 — Live page: fullscreen toggle + collapse controls by default.
  *
- * Per triage fix path (Kpa-clawbot/CoreScope#1532):
+ * Per triage fix path (ComchanNet/CoreScope#1532):
  *   1. `.live-controls` is collapsed by default on desktop too, not just
  *      mobile (existing `#liveControlsToggle` reveals it).
  *   2. A new `#liveFullscreenToggle` button sits next to ⚙ — toggles a
