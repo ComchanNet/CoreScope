@@ -12,11 +12,11 @@
 # `meshcore-net`), see `docker-compose.staging.yml`.
 #
 # Usage: docker compose -f docker-compose.example.yml up -d
-# Docs:  https://github.com/Kpa-clawbot/CoreScope/blob/master/DEPLOY.md
+# Docs:  https://github.com/ComchanNet/CoreScope/blob/master/DEPLOY.md
 
 services:
   corescope:
-    image: ghcr.io/kpa-clawbot/corescope:latest
+    image: ghcr.io/ComchanNet/corescope:latest
     ports:
       - "${HTTP_PORT:-80}:80"
     volumes:

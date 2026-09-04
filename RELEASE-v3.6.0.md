@@ -204,4 +204,4 @@ curl -s http://localhost/api/health | jq .version
 
 ---
 
-*Previous release: [v3.5.2](https://github.com/Kpa-clawbot/CoreScope/releases/tag/v3.5.2)*
+*Previous release: [v3.5.2](https://github.com/ComchanNet/CoreScope/releases/tag/v3.5.2)*
