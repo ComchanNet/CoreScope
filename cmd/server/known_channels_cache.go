@@ -174,7 +174,7 @@ func (c *knownChannelsCache) fetchOnce(ctx context.Context) error {
 		c.failCount.Add(1)
 		return err
 	}
-	req.Header.Set("User-Agent", "CoreScope-KnownChannels/1.0 (+https://github.com/Kpa-clawbot/CoreScope)")
+	req.Header.Set("User-Agent", "CoreScope-KnownChannels/1.0 (+https://github.com/ComchanNet/CoreScope)")
 	resp, err := c.client.Do(req)
 	if err != nil {
 		c.failCount.Add(1)
