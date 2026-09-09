@@ -1471,8 +1471,8 @@
       if (obsId) chosen = observations.find(o => String(o.id) === String(obsId));
       else if (obsPublicKey) chosen = observations.find(
         o => 
-          String(o.observer_pubkey) === String(obsPublicKey) || (
-            String(obsPublicKey).length >= 8 && String(o.observer_pubkey).startsWith(String(obsPublicKey))
+          String(o.observer_id) === String(obsPublicKey) || (
+            String(obsPublicKey).length >= 8 && String(o.observer_id).startsWith(String(obsPublicKey))
         )
       );
       if (!chosen) chosen = observations[0];
