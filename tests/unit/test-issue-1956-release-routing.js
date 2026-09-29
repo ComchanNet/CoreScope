@@ -199,14 +199,14 @@ for (const [name, edge] of [['matching', 'a'.repeat(40)], ['missing', null], ['m
   assert.equal(mutates.length, matching ? 2 : 0, `${name}: one mutate per platform`);
   if (matching) {
     assert.deepEqual(mutates.map(command => command.at(-1)).sort(),
-      ['ghcr.io/kpa-clawbot/corescope:tmp-v9.8.7-linux-amd64', 'ghcr.io/kpa-clawbot/corescope:tmp-v9.8.7-linux-arm64'],
+      ['ghcr.io/ComchanNet/corescope:tmp-v9.8.7-linux-amd64', 'ghcr.io/ComchanNet/corescope:tmp-v9.8.7-linux-arm64'],
       'each platform is mutated into its own scratch tag');
     assert.ok(mutates.every(command => command[2].includes('@sha256:')), 'mutate must address a platform by digest, not the index tag');
     const indexes = commands.filter(command => command[0] === 'crane' && command[1] === 'index');
     assert.equal(indexes.length, 1, 'the release tag is assembled as one index');
     assert.deepEqual(indexes[0].slice(1, 3), ['index', 'append']);
     assert.equal(indexes[0].filter(argument => argument === '-m').length, 2, 'the index carries both platforms');
-    assert.equal(indexes[0].at(-1), 'ghcr.io/kpa-clawbot/corescope:v9.8.7');
+    assert.equal(indexes[0].at(-1), 'ghcr.io/ComchanNet/corescope:v9.8.7');
   }
   assert.deepEqual(commands.filter(command => command[0] === 'crane' && command[1] === 'tag').map(command => command.at(-1)), matching ? ['v9.8', 'v9', 'latest'] : []);
   const jobs = route(context(undefined, undefined, { images_published: matching }));
