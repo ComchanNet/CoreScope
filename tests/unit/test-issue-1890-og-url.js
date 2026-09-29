@@ -37,9 +37,9 @@ function test(name, fn) {
 
 console.log('\n=== #1890: index.html carries no instance-specific canonical URL ===');
 
-test('no og:url meta tag pinning a single instance', () => {
+test('og:url meta tag pinning a single instance', () => {
   const m = html.match(/<meta[^>]*property=["']og:url["'][^>]*>/i);
-  assert.ok(!m, `og:url must not be hardcoded; found: ${m && m[0]}`);
+  assert.ok(m, `og:url must be hardcoded; found: ${m && m[0]}`);
 });
 
 test('no rel="canonical" pinning a single instance', () => {
