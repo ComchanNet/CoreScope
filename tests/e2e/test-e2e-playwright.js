@@ -66,6 +66,89 @@ async function run() {
 
   console.log(`\nRunning E2E tests against ${BASE}\n`);
 
+  // API contract fixtures exercise both real node renderers at desktop/mobile sizes.
+  for (const width of [1280, 375]) {
+    await test(`#2073 recent adverts grouped in both node views at ${width}px`, async () => {
+      const fixtureContext = await browser.newContext({ viewport: { width, height: 900 } });
+      const fixturePage = await fixtureContext.newPage();
+      const pubkey = 'a'.repeat(64);
+      const node = { public_key: pubkey, name: 'Advert fixture', role: 'repeater',
+        last_seen: new Date().toISOString(), advert_count: 900 };
+      const routes = [
+        { advert_kind: 'flood', route_type: 1, raw_hex: '110000' },
+        { advert_kind: 'zero_hop', route_type: 2, raw_hex: '120000' },
+        { advert_kind: 'flood', route_type: 0, raw_hex: '10010203040000' },
+        { advert_kind: 'zero_hop', route_type: 3, raw_hex: '13010203040000' },
+        { advert_kind: 'other', route_type: 2, raw_hex: '1201ab00', path_json: '[]' },
+        { route_type: null, raw_hex: null },
+        { route_type: 2, raw_hex: '1200zz' },
+        { advert_kind: 'mixed', route_type: 1, raw_hex: '110000' },
+        { advert_kind: 'mixed', route_type: 2, raw_hex: '120000' },
+        { route_type: 1, raw_hex: '110000' },
+        { advert_kind: 'future_kind', route_type: 2, raw_hex: '120000' },
+      ];
+      let adverts = routes.map((route, i) => ({ ...route, hash: String(i + 1).repeat(16),
+        timestamp: new Date(Date.now() - i * 60000).toISOString(), payload_type: 4,
+        observer_name: `Fixture observer ${i + 1}`, snr: 7 + i, rssi: -80 - i, observation_count: 2 }));
+      await fixturePage.route('**/api/nodes**', async route => {
+        const path = new URL(route.request().url()).pathname;
+        let body;
+        if (path === '/api/nodes') body = { nodes: [node], total: 1 };
+        else if (path === '/api/nodes/' + pubkey) body = { node, recentAdverts: adverts };
+        else if (path === '/api/nodes/' + pubkey + '/health') body = {};
+        else return route.continue();
+        await route.fulfill({ json: body });
+      });
+      try {
+        for (const empty of [false, true]) {
+          if (empty) adverts = [];
+          for (const full of [false, true]) {
+            await fixturePage.goto(`${BASE}/#/nodes${full ? '/' + pubkey : ''}`, { waitUntil: 'domcontentloaded' });
+            await fixturePage.reload({ waitUntil: 'domcontentloaded' });
+            if (!full) await fixturePage.locator(`tr[data-key="${pubkey}"]`).click();
+            // On phones a list click opens the full page; only desktop has a side pane.
+            const fullView = full || width <= 640;
+            const root = fullView ? '#node-packets' : '#advertTimeline';
+            await fixturePage.locator(root).waitFor();
+            const groups = await fixturePage.locator(root + ' [data-advert-kind]').evaluateAll(els => els.map(el => ({
+              kind: el.dataset.advertKind,
+              heading: el.querySelector('h5').textContent.trim(),
+              rows: Array.from(el.querySelectorAll('a.ch-analyze-link'), a => ({
+                href: a.getAttribute('href'),
+                text: a.closest('.node-activity-item, .advert-entry').textContent,
+              })),
+              text: el.textContent,
+              overflow: el.scrollWidth > el.clientWidth + 1,
+            })));
+            assert(groups.length === (empty ? 2 : 4), `Expected ${empty ? 2 : 4} advert groups, got ${groups.length}`);
+            const expected = empty ? [[], []] : [[0, 2], [7, 8], [1, 3], [4, 5, 6, 9, 10]];
+            const labels = empty ? ['Flood adverts', 'Direct adverts (empty path)'] : ['Flood adverts', 'Mixed flood / direct (empty path) adverts', 'Direct adverts (empty path)', 'Other / unknown adverts'];
+            assert(groups.reduce((count, group) => count + group.rows.length, 0) === adverts.length, 'Each advert must appear exactly once');
+            expected.forEach((indices, i) => {
+              assert(groups[i].heading === `${labels[i]} (${indices.length})`, `Wrong sample count: ${groups[i].heading}`);
+              assert(JSON.stringify(groups[i].rows.map(row => row.href)) === JSON.stringify(indices.map(j => '#/packets/' + adverts[j].hash)), 'Advert order or analyze links changed');
+              assert(!groups[i].overflow, `${labels[i]} overflows at ${width}px`);
+              if (empty) assert(groups[i].text.includes('None in this recent sample'), `${labels[i]} empty-state message missing`);
+              indices.forEach((j, rowIndex) => {
+                const advert = adverts[j];
+                const row = groups[i].rows[rowIndex];
+                assert(row.text.includes(advert.observer_name) && row.text.includes(`SNR ${advert.snr}dB`) && row.text.includes(`RSSI ${advert.rssi}dBm`), `RF/observer metadata changed for ${row.href}`);
+              });
+            });
+            const heading = fullView ? fixturePage.locator('#node-packets h4') : fixturePage.locator('#advertTimeline').locator('..').locator('h4');
+            assert(await heading.textContent() === `Recent Adverts (${adverts.length})`, 'Recent Adverts count must reflect sample, not lifetime');
+            assert((await heading.getAttribute('title')).includes('originated'), 'Existing origin tooltip lost');
+            const explanation = await heading.getAttribute('title');
+            assert(explanation.includes('available observations') && explanation.includes('older history may be incomplete'), 'Grouping must explain the available-evidence limit');
+            assert(explanation.includes('observed empty direct path') && explanation.includes('cannot prove an origin-local send or RF distance'), 'Both node views must distinguish an observed path from send origin and distance');
+          }
+        }
+      } finally {
+        await fixtureContext.close();
+      }
+    });
+  }
+
   // --- Group: Home page (tests 1, 6, 7) ---
 
   // Test 1: Home page loads
