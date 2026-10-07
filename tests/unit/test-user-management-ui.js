@@ -25,6 +25,16 @@ function loadEscapeHtml() {
   return vm.runInNewContext('(' + m[0].replace(/^function escapeHtml/, 'function') + ')');
 }
 
+// CSAuth.say and CSAuth.errText come from the real auth.js, bound to ctx
+// (say reads ctx.document).
+function loadAuthHelpers(ctx) {
+  const src = fs.readFileSync(path.join(ROOT, 'public/auth.js'), 'utf8');
+  const say = src.match(/function say\(id, text, ok\) \{[\s\S]*?\n  \}/);
+  const err = src.match(/function errText\(r\) \{.*\}/);
+  assert(say && err, 'say/errText not found in auth.js');
+  return { say: vm.runInContext('(' + say[0] + ')', ctx), errText: vm.runInContext('(' + err[0] + ')', ctx) };
+}
+
 function makeEnv(routes) {
   const els = {};
   const events = [];
@@ -209,6 +219,64 @@ test('a refused logout keeps the user and the view', async () => {
   assert.strictEqual(env.loc.hash, '#/account');
 });
 
+test('logout handler: cancel keeps the session and posts nothing', async () => {
+  const env = makeEnv((u) => u === '/api/auth/me' ? { status: 200, body: ME } : { status: 200, body: { ok: true } });
+  await env.win.CSAuth.ready();
+  env.calls.length = 0;
+  env.win.CSAuth.setLogoutHandler(() => Promise.resolve({ cancel: true }));
+  const r = await env.win.CSAuth.logout('#/account/login');
+  assert.strictEqual(r.cancelled, true);
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(env.calls.length, 0);
+  assert.strictEqual(env.win.CS_USER.displayName, 'Ann');
+  assert.strictEqual(env.loc.hash, '#/account');
+});
+
+test('logout handler: afterLogout runs after the POST, before the user is cleared', async () => {
+  const env = makeEnv((u) => u === '/api/auth/me' ? { status: 200, body: ME } : { status: 200, body: { ok: true } });
+  await env.win.CSAuth.ready();
+  env.calls.length = 0;
+  let userAtAfter = 'not called', postedBefore = false;
+  env.win.CSAuth.setLogoutHandler(() => Promise.resolve({ afterLogout() { userAtAfter = env.win.CS_USER; postedBefore = env.calls.length === 1; } }));
+  const r = await env.win.CSAuth.logout('#/account/login');
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(postedBefore, true);
+  assert.strictEqual(userAtAfter.displayName, 'Ann');
+  assert.strictEqual(env.win.CS_USER, null);
+});
+
+// M4 (final review): a second Log out click while the dialog is open must
+// not stack a second dialog or send a second POST.
+test('logout: a second call while one is running opens no second dialog', async () => {
+  const env = makeEnv((u) => u === '/api/auth/me' ? { status: 200, body: ME } : { status: 200, body: { ok: true } });
+  await env.win.CSAuth.ready();
+  env.calls.length = 0;
+  let dialogs = 0, choose;
+  env.win.CSAuth.setLogoutHandler(() => { dialogs++; return new Promise((r) => { choose = r; }); });
+  const first = env.win.CSAuth.logout('#/account/login');
+  const second = env.win.CSAuth.logout('#/account/login');
+  await new Promise((r) => setTimeout(r, 0));
+  assert.strictEqual(dialogs, 1);
+  assert.strictEqual((await second).cancelled, true);
+  choose({});
+  assert.strictEqual((await first).ok, true);
+  assert.strictEqual(env.calls.filter((c) => c.url === '/api/auth/logout').length, 1);
+  // Finished: the next logout runs again.
+  const third = env.win.CSAuth.logout('#/account/login');
+  assert.strictEqual(dialogs, 2);
+  choose({ cancel: true });
+  assert.strictEqual((await third).cancelled, true);
+});
+
+test('logout handler: a refused POST does not run afterLogout', async () => {
+  const env = makeEnv((u) => u === '/api/auth/me' ? { status: 200, body: ME } : { status: 403, body: { error: 'no' } });
+  await env.win.CSAuth.ready();
+  let ran = false;
+  env.win.CSAuth.setLogoutHandler(() => Promise.resolve({ afterLogout() { ran = true; } }));
+  await env.win.CSAuth.logout('#/account/login');
+  assert.strictEqual(ran, false);
+});
+
 console.log('mobile nav account entry');
 
 // Slice the real route tables and builders out of the two files; markers
@@ -257,7 +325,7 @@ NAVS.forEach((n) => {
 
 console.log('account.js');
 
-function loadAccount(hash, routes) {
+function loadAccount(hash, routes, extraWin) {
   const els = {};
   const mk = () => {
     const el = { value: '', textContent: '', handlers: {}, cls: {}, html: '' };
@@ -285,11 +353,12 @@ function loadAccount(hash, routes) {
     ready() { return Promise.resolve(); }, isEnabled() { return true; },
     notify() {}, refreshMe() { return Promise.resolve(); },
   };
-  const win = { CSAuth, addEventListener(t, fn) { listeners[t] = fn; } };
+  const win = Object.assign({ CSAuth, addEventListener(t, fn) { listeners[t] = fn; } }, extraWin || {});
   const ctx = { window: win, document: doc, CSAuth, location: loc, URLSearchParams, Promise, String, Object,
     history: { replaceState(a, b, h) { replaced.push(h); loc.hash = h; } },
     escapeHtml: loadEscapeHtml(), registerPage(n, m) { pages[n] = m; }, console };
   vm.createContext(ctx);
+  Object.assign(CSAuth, loadAuthHelpers(ctx));
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/account.js'), 'utf8'), ctx);
   return { setRequest(f) { override = f; }, doc, t: ctx.window.CSAccount._test, els, calls, loc, user, pages, logouts, replaced,
     setLogout(r) { logoutResult = r; },
@@ -483,6 +552,28 @@ test('profile view: a refused logout shows the error next to the button', async 
   assert.strictEqual(env.els.logoutMsg.textContent, 'Network error, try again.');
 });
 
+test('profile view: a cancelled logout shows no message', async () => {
+  const env = loadAccount('#/account', () => ({ ok: true, status: 200, data: [] }));
+  env.user.current = { id: 1, email: 'a@b.c', displayName: 'Ann', role: 'user' };
+  env.setLogout({ ok: false, cancelled: true, status: 0, data: {} });
+  env.t.views.profile({ set innerHTML(v) {} });
+  await env.els.accountPageLogout.handlers.click();
+  assert.strictEqual(env.doc.getElementById('logoutMsg').textContent, '');
+});
+
+test('profile view mounts the settings sync section only when the module is loaded', () => {
+  const mounted = [];
+  const env = loadAccount('#/account', () => ({ ok: true, status: 200, data: [] }), { CSSettingsSync: { mountSection(el) { mounted.push(el); } } });
+  env.user.current = { id: 1, email: 'a@b.c', displayName: 'Ann', role: 'user' };
+  const app = { innerHTML: '' };
+  env.t.views.profile(app);
+  assert(app.innerHTML.indexOf('<h3>Settings sync</h3><div id="syncSection"></div>') !== -1);
+  assert.strictEqual(mounted.length, 1);
+  assert.strictEqual(mounted[0], env.els.syncSection);
+  const without = loadAccount('#/account', () => ({}));
+  assert.strictEqual(without.t.profileHtml({ email: 'a', role: 'user', displayName: 'A' }).indexOf('syncSection'), -1);
+});
+
 test('profile view: Log out button for everyone, Manage users link for admins only', () => {
   const env = loadAccount('#/account', () => ({}));
   const user = env.t.profileHtml({ email: 'a', role: 'user', displayName: 'A' });
@@ -592,6 +683,7 @@ function loadAdmin(hash, routes) {
     confirm() { return true; }, debounce(fn) { return fn; },
     escapeHtml: loadEscapeHtml(), registerPage(n, m) { pages[n] = m; }, console };
   vm.createContext(ctx);
+  Object.assign(CSAuth, loadAuthHelpers(ctx));
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/admin-users.js'), 'utf8'), ctx);
   const app = { innerHTML: '', querySelector() { return els.umPage || (els.umPage = mk('umPage')); } };
   return { t: ctx.window.CSAdminUsers._test, pages, els, calls, replaced, loc, app, refreshed: () => refreshed,
