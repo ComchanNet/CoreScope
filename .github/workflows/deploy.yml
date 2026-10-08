@@ -528,7 +528,8 @@ jobs:
               "dbPath": "/tmp/cs-um/users.db",
               "adminEmails": ["admin@e2e.test"],
               "publicBaseUrl": "http://localhost:13582",
-              "mail": { "provider": "fake", "fromEmail": "noreply@e2e.test" }
+              "mail": { "provider": "fake", "fromEmail": "noreply@e2e.test" },
+              "channelProposals": { "enabled": true }
             }
           }
           JSON
