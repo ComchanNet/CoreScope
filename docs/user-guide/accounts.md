@@ -35,13 +35,15 @@ API instead of Brevo:
 3. In `config.json`, set `mail.provider` to `"postal"` and `mail.postalBaseUrl` to the
    address of your Postal web/API host, e.g. `https://postal.example.org`. It must be
    https, unless Postal runs on the same machine (`http://localhost:5000`).
-4. Provide the credential as `mail.postalApiKey` or, better, the environment variable
-   `CORESCOPE_POSTAL_API_KEY`. CoreScope sends it in the `X-Server-API-Key` header.
+4. Provide the credential's key as `mail.postalApiKey` or, better, the environment
+   variable `CORESCOPE_POSTAL_API_KEY`, which wins over the config value. CoreScope
+   sends it in the `X-Server-API-Key` header.
 
 ```json
 "mail": {
   "provider": "postal",
   "postalBaseUrl": "https://postal.example.org",
+  "postalApiKey": "<key of the API credential, or leave out and use the env variable>",
   "fromEmail": "noreply@example.org",
   "fromName": "My CoreScope"
 }
@@ -74,7 +76,9 @@ incomplete, and the log says what is missing.
 | `sessionDays` | Login lifetime, extended while in use. Default 30, maximum 365. |
 | `trustedProxies` | CIDRs of your reverse proxy, so the per-IP login limits see real client IPs. Without it, behind a proxy every client shares the proxy's IP for the per-IP limits (they are switched off when that IP is loopback or private). Per-address and per-account limits apply either way. |
 | `mail.provider` | `brevo` (default) or `postal`. |
-| `mail.postalBaseUrl` | Postal only: your Postal host, https (http only for localhost). |
+| `mail.brevoApiKey` | Brevo only: the API key. `CORESCOPE_BREVO_API_KEY` wins over it. Required with Brevo. |
+| `mail.postalBaseUrl` | Postal only: your Postal host, https (http only for localhost). Required with Postal. |
+| `mail.postalApiKey` | Postal only: the key of the server's API credential. `CORESCOPE_POSTAL_API_KEY` wins over it. Required with Postal. |
 | `mail.webhookSecret` | Enables delivery status (below). At least 16 characters. With Postal, only letters, digits, `.`, `_` and `-`. |
 
 ### 3. The first admin
@@ -223,8 +227,9 @@ watched node changes state. Admins can also watch the instance.
 - `maxMailsPerDay` counts notification mail only; activation, password-reset and
   address-change mail are not counted and are not limited by it. They share the mail
   provider's daily quota, though (Brevo's free tier allows 300 a day for the whole
-  account; a Postal server has whatever send limit you set on it), so keep `maxMailsPerDay` well below that quota. The default 100 leaves 200
-  a day for account mail and for any other sender on the same provider account.
+  account; a Postal server has whatever send limit you set on it), so keep
+  `maxMailsPerDay` well below that quota. The default 100 leaves 200 a day for account
+  mail and for any other sender on the same provider account.
 - Every mail carries a one-click unsubscribe link and `List-Unsubscribe` headers; the
   link turns notification mails off for that account and nothing else. The account page
   turns them back on.
