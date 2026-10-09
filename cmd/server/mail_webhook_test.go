@@ -67,3 +67,73 @@ func newAuthFixtureRouterOnly(f *authFixture) *mux.Router {
 	f.srv.registerAuthRoutes(r)
 	return r
 }
+
+func TestPostalWebhookAuthAndIngest(t *testing.T) {
+	f, _, uma := adminFixture(t)
+	f.srv.auth.set.provider = "postal"
+	router := newAuthFixtureRouterOnly(f)
+	uid := uma.me.ID
+	mailID, err := f.st.LogMail(&uid, "uma@example.org", "activate", "4242")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, _ := f.st.MailByID(mailID)
+	body := fmt.Sprintf(`{"event":"MessageDeliveryFailed","timestamp":%d.5,"uuid":"u1","payload":{
+		"message":{"id":4242,"to":"uma@example.org"},"status":"HardFail","details":"550 mailbox unavailable",
+		"timestamp":%d.0}}`, rec.SentAt.Unix()+35, rec.SentAt.Unix()+30)
+	post := func(user, pass, b string) int {
+		req := httptest.NewRequest("POST", "/api/mail/postal/webhook", bytes.NewBufferString(b))
+		req.RemoteAddr = "203.0.113.50:443"
+		if pass != "" {
+			req.SetBasicAuth(user, pass)
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w.Code
+	}
+	if c := post("", "", body); c != 401 {
+		t.Fatalf("no auth = %d", c)
+	}
+	if c := post("postal", "wrong-secret-xxxxxxxx", body); c != 401 {
+		t.Fatalf("wrong auth = %d", c)
+	}
+	if c := post("postal", testHook, `{"event":"DomainDNSError","payload":{}}`); c != 200 { // 200 so Postal stops retrying
+		t.Fatalf("server event = %d", c)
+	}
+	if c := post("postal", testHook, body); c != 200 {
+		t.Fatalf("valid = %d", c)
+	}
+	rec, _ = f.st.MailByID(mailID)
+	if rec.LastEvent != "hard_bounce" || rec.LastReason != "550 mailbox unavailable" {
+		t.Fatalf("mail record = %+v", rec)
+	}
+	if u, _ := f.st.GetByID(uid); !u.EmailBouncing {
+		t.Fatal("bounce flag not set")
+	}
+	unknown := `{"event":"MessageSent","payload":{"message":{"id":999999}}}`
+	if c := post("postal", testHook, unknown); c != 200 {
+		t.Fatalf("unknown id = %d (must be 200 so Postal stops retrying)", c)
+	}
+}
+
+func TestWebhookRouteFollowsProvider(t *testing.T) {
+	f, _, _ := adminFixture(t)
+	code := func(r *mux.Router, path string) int {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest("POST", path, bytes.NewBufferString("{}")))
+		return w.Code
+	}
+	f.srv.auth.set.provider = "postal"
+	r := newAuthFixtureRouterOnly(f)
+	if c := code(r, "/api/mail/brevo/webhook"); c != 404 {
+		t.Fatalf("brevo route with the postal provider = %d, want 404", c)
+	}
+	if c := code(r, "/api/mail/postal/webhook"); c != 401 {
+		t.Fatalf("postal route = %d, want 401", c)
+	}
+	f.srv.auth.set.provider = "brevo"
+	r = newAuthFixtureRouterOnly(f)
+	if c := code(r, "/api/mail/postal/webhook"); c != 404 {
+		t.Fatalf("postal route with the brevo provider = %d, want 404", c)
+	}
+}
