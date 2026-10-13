@@ -283,6 +283,40 @@ for (const [ref, event] of [['refs/heads/master', 'push'], ['refs/heads/master',
   assert.equal(noRace['build-and-publish'].result, 'success', `${event}: a skipped race-test must not block`);
 }
 assert.equal(route(context(), 'go-test')['release-artifacts'].result, 'skipped', 'failed Go validation must block release');
+// A manual run with publish_image publishes the selected branch's image as
+// :<branch> + :sha-<commit>. :edge stays one image per master push: release
+// fast path re-tags it and staging pulls it, so no manual run may move it.
+{
+  const job = block(deploy, 'build-and-publish', 2);
+  const publishing = steps(job).find(step => value(step, 'push', 10) === 'true');
+  const meta = steps(job).find(step => step.includes('uses: docker/metadata-action'));
+  const tagEnabled = (type, ctx) => {
+    const line = value(meta, 'tags', 10).split('\n').find(l => l.startsWith(type + ','));
+    assert.ok(line, `metadata tags must include ${type}`);
+    const m = line.match(/enable=(\$\{\{.*\}\})/);
+    return m ? Boolean(evaluate(m[1], ctx)) : true;
+  };
+  for (const [ref, event, inputs, publishes, branchTags, edge] of [
+    ['refs/heads/feat/x', 'workflow_dispatch', { publish_image: true }, true, true, false],
+    ['refs/heads/feat/x', 'workflow_dispatch', { publish_image: false }, false, false, false],
+    ['refs/heads/master', 'workflow_dispatch', { publish_image: true }, true, true, false],
+    ['refs/heads/master', 'push', {}, true, false, true],
+    ['refs/pull/1/merge', 'pull_request', {}, false, false, false],
+    ['refs/tags/v9.8.7', 'workflow_dispatch', { publish_image: true }, true, false, false],
+  ]) {
+    const ctx = context(ref, event, inputs);
+    const name = `${event} ${ref} ${JSON.stringify(inputs)}`;
+    assert.equal(Boolean(evaluate(value(publishing, 'if', 8), ctx)), publishes, `${name}: GHCR publishing`);
+    assert.equal(tagEnabled('type=ref', ctx), branchTags, `${name}: :<branch> tag`);
+    assert.equal(tagEnabled('type=sha', ctx), branchTags, `${name}: :sha-<commit> tag`);
+    assert.equal(tagEnabled('type=edge', ctx), edge, `${name}: :edge tag`);
+  }
+  const publishInput = block(deploy, 'publish_image', 6);
+  assert.equal(value(publishInput, 'type', 8), 'boolean', 'publish_image is a boolean');
+  assert.equal(value(publishInput, 'default', 8), 'false', 'a manual run publishes nothing unless asked');
+  console.log('PASS manual publish_image: branch + sha tags, never :edge');
+}
+
 const dispatchInput = block(deploy, 'images_published', 6);
 assert.equal(value(dispatchInput, 'type', 8), 'boolean', 'dispatch flag must retain boolean semantics');
 assert.equal(value(dispatchInput, 'default', 8), 'false', 'manual and fallback dispatches must build images by default');
