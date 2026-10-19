@@ -80,17 +80,40 @@ window.inferObservationPath = function inferObservationPath(obs, observer, origi
 };
 
 /**
- * Load the neighbour graph into HopResolver, once per page life. Its links
- * are evidence for inferPath(); a failed load is retried on the next call.
+ * Load the neighbour graph into HopResolver. Its links are evidence for
+ * inferPath(), not a prerequisite: inferPath() works without them, so callers
+ * render with whatever is loaded (hasHopAffinity) rather than wait.
+ *
+ * The graph is refetched once it is older than the api() cache TTL, on the
+ * next call; the previous graph stays in use until the new one lands, and a
+ * failed fetch keeps it and is retried on the following call.
+ *
+ * @returns {Promise<boolean>} true once a graph is in place, false on failure
  */
+var HOP_AFFINITY_TTL_MS = 300000;
 var hopAffinityLoad = null;
+var hopAffinityRequestedAt = 0;
+var hopAffinityLoaded = false;
 window.ensureHopAffinity = function ensureHopAffinity() {
-  if (!hopAffinityLoad) {
-    hopAffinityLoad = api('/analytics/neighbor-graph', { ttl: 300000 })
-      .then(function (graph) { window.HopResolver.setAffinity(graph); })
-      .catch(function () { hopAffinityLoad = null; });
+  if (!hopAffinityLoad || Date.now() - hopAffinityRequestedAt > HOP_AFFINITY_TTL_MS) {
+    hopAffinityRequestedAt = Date.now();
+    hopAffinityLoad = api('/analytics/neighbor-graph', { ttl: HOP_AFFINITY_TTL_MS })
+      .then(function (graph) {
+        window.HopResolver.setAffinity(graph);
+        hopAffinityLoaded = true;
+        return true;
+      })
+      .catch(function () {
+        hopAffinityLoad = null;
+        return false;
+      });
   }
   return hopAffinityLoad;
+};
+
+/** Whether HopResolver holds a neighbour graph (possibly a previous one). */
+window.hasHopAffinity = function hasHopAffinity() {
+  return hopAffinityLoaded;
 };
 
 /**

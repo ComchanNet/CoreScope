@@ -39,6 +39,10 @@ const OBSERVERS = [
 
 function loadPage() {
   const appended = [];
+  // ctx.clock, when set, is what Date.now() returns: the graph refresh TTL.
+  class FakeDate extends Date {
+    static now() { return ctx.clock != null ? ctx.clock : Date.now(); }
+  }
   const ctx = {
     window: { addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => {}, innerWidth: 1200, PacketFilter: null, scrollX: 0, scrollY: 0 },
     document: {
@@ -51,7 +55,7 @@ function loadPage() {
       addEventListener: () => {}, removeEventListener: () => {},
       querySelectorAll: () => [], querySelector: () => null, body: { appendChild: el => appended.push(el) },
     },
-    console, Date, Infinity, Math, Array, Object, String, Number, JSON, RegExp,
+    console, Date: FakeDate, Infinity, Math, Array, Object, String, Number, JSON, RegExp,
     Error, TypeError, RangeError, parseInt, parseFloat, isNaN, isFinite,
     encodeURIComponent, decodeURIComponent,
     setTimeout: () => {}, clearTimeout: () => {}, setInterval: () => {}, clearInterval: () => {},
@@ -80,7 +84,7 @@ function loadPage() {
     return Promise.resolve(
       path === '/observers' ? { observers: OBSERVERS }
       : path === '/iata-coords' ? { coords: { TST: { lat: 40.5, lon: -100 } } }
-      : path === '/analytics/neighbor-graph' ? { edges: [] }
+      : path === '/analytics/neighbor-graph' ? (ctx.graphReply ? ctx.graphReply() : { edges: [] })
       : {});
   };
   ctx.appended = appended;
@@ -91,6 +95,32 @@ const hopParts = html => html.split('<span class="arrow">→</span>');
 const text = html => html.replace(/<[^>]+>/g, '').trim();
 const hasBadge = part => /hop-conflict-btn/.test(part);
 const panelStub = () => ({ innerHTML: '', querySelectorAll: () => [], querySelector: () => null, addEventListener: () => {} });
+
+// A panel whose hop containers record what is written to them after render,
+// as the graph-arrival refresh writes into them in place.
+function recordingPanel() {
+  const slot = () => {
+    const el = { writes: [], dataset: {} };
+    Object.defineProperty(el, 'innerHTML', { get() { return this.writes[this.writes.length - 1] || ''; }, set(v) { this.writes.push(v); } });
+    return el;
+  };
+  const els = { '.detail-path-hops': slot(), '.detail-aggregate-hops': slot() };
+  const byIdx = [];
+  const panel = {
+    html: '', els, byIdx,
+    addEventListener: () => {},
+    querySelector: sel => els[sel] || null,
+    querySelectorAll: sel => {
+      if (sel !== '.detail-hop-name') return [];
+      const n = (panel.html.match(/data-hop-idx="/g) || []).length;
+      while (byIdx.length < n) { const el = slot(); el.dataset.hopIdx = String(byIdx.length); byIdx.push(el); }
+      return byIdx.slice(0, n);
+    },
+  };
+  Object.defineProperty(panel, 'innerHTML', { get() { return panel.html; }, set(v) { panel.html = v; } });
+  return panel;
+}
+const flush = () => new Promise(r => setImmediate(r));
 const rowHtml = (html, dt) => {
   const m = html.match(new RegExp('<dt>' + dt + '</dt><dd>([\\s\\S]*?)</dd>'));
   return m ? m[1] : '';
@@ -191,6 +221,101 @@ const rowHtml = (html, dt) => {
 
     await t.renderDetail(panel, { packet: pkt, observations }, 71);
     assert(ctx.apiCalls.filter(p => p === '/analytics/neighbor-graph').length === 1, 'a second render reuses it');
+  }
+
+  console.log('\n=== renderDetail does not wait for the neighbour graph ===');
+  {
+    const ctx = loadPage();
+    const t = ctx._packetsTestAPI;
+    let landGraph;
+    ctx.graphReply = () => new Promise(res => { landGraph = res; });
+    const raw = '1503B1F3AA' + 'CC'.repeat(24);
+    const pkt = { id: 8, hash: 'h8', observer_id: OBS, route_type: 1, payload_type: 5, raw_hex: raw,
+      path_json: '["b1","f3","aa"]', decoded_json: JSON.stringify({ type: 'CHAN', channel: '#test', sender: 'S', text: 'S: hi' }) };
+    const observations = [
+      { id: 81, observer_id: OBS, path_json: '["b1","f3","aa"]', raw_hex: raw },
+      { id: 82, observer_id: OBS, path_json: '["aa"]', raw_hex: '1501AA' + 'CC'.repeat(24) },
+    ];
+    const panel = recordingPanel();
+    const done = t.renderDetail(panel, { packet: pkt, observations }, 81).then(() => 'rendered');
+    const raced = await Promise.race([done, new Promise(r => setTimeout(() => r('waited'), 1000))]);
+    assert(raced === 'rendered', 'the pane renders while the graph is still loading (' + raced + ')');
+    const before = hopParts(rowHtml(panel.html, 'Path')).map(text);
+    assert(before.length === 3 && /F-(WEST|EAST)/.test(before[1]), 'without the graph, "f3" is a guess between the two (' + before.join(' → ') + ')');
+    assert(/class="detail-path-hops"/.test(panel.html) && /data-hop-idx="1"/.test(panel.html), 'the hop rows are marked for an in-place refresh');
+
+    landGraph({ edges: [{ source: pk('B-MID'), target: pk('F-EAST'), score: 1 }] });
+    await flush();
+    const path = panel.els['.detail-path-hops'];
+    assert(path.writes.length === 1, 'when the graph lands, the Path row is redrawn once (' + path.writes.length + ')');
+    const after = hopParts(path.innerHTML).map(text);
+    const pctOf = (html, name) => {
+      const m = html.match(new RegExp('title="f3 — (\\d+)% likely[^"]*"[^>]*>' + name));
+      return m ? Number(m[1]) : null;
+    };
+    const eastBefore = pctOf(rowHtml(panel.html, 'Path'), 'F-EAST') || 0;
+    const eastAfter = pctOf(path.innerHTML, 'F-EAST');
+    assert(/^F-EAST/.test(after[1]), 'with the graph, the linked candidate wins (' + after.join(' → ') + ')');
+    assert(eastAfter > eastBefore, 'and its likelihood rises (' + eastBefore + '% → ' + eastAfter + '%)');
+    assert(/F-EAST/.test(panel.byIdx[1].innerHTML), 'the byte breakdown row for hop 1 is redrawn too');
+    assert(panel.els['.detail-aggregate-hops'].writes.length === 1, 'and so is the aggregate row');
+
+    await t.renderDetail(panel, { packet: pkt, observations }, 81);
+    await flush();
+    assert(path.writes.length === 1, 'once a graph is loaded, a render schedules no second pass');
+  }
+
+  console.log('\n=== a late graph never overwrites a newer render of the same panel ===');
+  {
+    const ctx = loadPage();
+    const t = ctx._packetsTestAPI;
+    let landGraph;
+    ctx.graphReply = () => new Promise(res => { landGraph = res; });
+    const raw = '1503B1F3AA' + 'CC'.repeat(24);
+    const pkt = { id: 9, hash: 'h9', observer_id: OBS, route_type: 1, payload_type: 5, raw_hex: raw,
+      path_json: '["b1","f3","aa"]', decoded_json: JSON.stringify({ type: 'CHAN', channel: '#test', sender: 'S', text: 'S: hi' }) };
+    const observations = [
+      { id: 91, observer_id: OBS, path_json: '["b1","f3","aa"]', raw_hex: raw },
+      { id: 92, observer_id: OBS, path_json: '["aa"]', raw_hex: '1501AA' + 'CC'.repeat(24) },
+    ];
+    const panel = recordingPanel();
+    await t.renderDetail(panel, { packet: pkt, observations }, 91);
+    // The reader clicks the other observation before the graph arrives.
+    await t.renderDetail(panel, { packet: pkt, observations }, 92);
+    landGraph({ edges: [{ source: pk('B-MID'), target: pk('F-EAST'), score: 1 }] });
+    await flush();
+    const writes = panel.els['.detail-path-hops'].writes;
+    assert(!writes.some(w => /F-(WEST|EAST)/.test(w)), 'the first render\'s refresh is dropped (' + writes.length + ' writes)');
+    assert(writes.length === 1 && /A-END/.test(writes[0]), 'only the shown observation is redrawn');
+  }
+
+  console.log('\n=== the neighbour graph is refreshed after the api() TTL ===');
+  {
+    const ctx = loadPage();
+    ctx.clock = 1000000;
+    const calls = () => ctx.apiCalls.filter(p => p === '/analytics/neighbor-graph').length;
+    assert(ctx.hasHopAffinity() === false, 'no graph before the first load');
+    await ctx.ensureHopAffinity();
+    await ctx.ensureHopAffinity();
+    assert(calls() === 1 && ctx.hasHopAffinity(), 'loaded once, then reused');
+    ctx.clock += 299 * 1000;
+    await ctx.ensureHopAffinity();
+    assert(calls() === 1, 'still reused just inside 5 minutes');
+    ctx.clock += 2 * 1000;
+    let landRefresh;
+    ctx.graphReply = () => new Promise(res => { landRefresh = res; });
+    const refresh = ctx.ensureHopAffinity();
+    assert(calls() === 2, 'refetched once 5 minutes have passed');
+    assert(ctx.hasHopAffinity(), 'the previous graph stays in use while the refresh is in flight');
+    landRefresh({ edges: [] });
+    assert(await refresh === true, 'the refresh reports that a graph landed');
+    ctx.clock += 301 * 1000;
+    ctx.graphReply = () => Promise.reject(new Error('offline'));
+    assert(await ctx.ensureHopAffinity() === false, 'a failed refresh reports false');
+    assert(ctx.hasHopAffinity(), 'and keeps the graph it had');
+    ctx.graphReply = null;
+    await ctx.ensureHopAffinity();
+    assert(calls() === 4, 'the next call retries');
   }
 
   console.log('\n=== shared helpers for the map route view ===');

@@ -244,6 +244,7 @@
     "getTimestampMode": "readonly",
     "getTimestampTimezone": "readonly",
     "global": "readonly",
+    "hasHopAffinity": "readonly",
     "hashPrefixInfo": "readonly",
     "inferObservationPath": "readonly",
     "initGeoFilterOverlay": "readonly",
